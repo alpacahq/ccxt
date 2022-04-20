@@ -37,10 +37,10 @@ project_urls = {
 
 setup(
 
-    name=package['name'],
-    version=package['version'],
+    name="alpaca-ccxt",
+    version="1.0.1",
 
-    description=package['description'],
+    description="Alpaca Exchange on CCXT",
     long_description=long_description,
     long_description_content_type='text/markdown',
 
@@ -76,7 +76,7 @@ setup(
     ],
 
     keywords=package['keywords'],
-    packages=find_packages(exclude=['ccxt.async_support*'] if is_python_2 else []),
+    packages=find_packages(exclude=['alpaca_ccxt.async_support*'] if is_python_2 else []),
 
     install_requires=[
         'setuptools>=60.9.0',
