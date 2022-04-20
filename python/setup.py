@@ -38,7 +38,7 @@ project_urls = {
 setup(
 
     name="alpaca-ccxt",
-    version="1.0.1",
+    version="1.0.2",
 
     description="Alpaca Exchange on CCXT",
     long_description=long_description,
