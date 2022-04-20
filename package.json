@@ -1,6 +1,6 @@
 {
   "name": "alpaca-ccxt",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Alpaca Exchange on CCXT",
   "main": "./ccxt.js",
   "unpkg": "dist/ccxt.browser.js",
