@@ -1,7 +1,7 @@
 {
-  "name": "ccxt",
-  "version": "1.79.94",
-  "description": "A JavaScript / Python / PHP cryptocurrency trading library with support for 130+ exchanges",
+  "name": "alpaca-ccxt",
+  "version": "1.0.0",
+  "description": "Alpaca Exchange on CCXT",
   "main": "./ccxt.js",
   "unpkg": "dist/ccxt.browser.js",
   "engines": {
@@ -12,7 +12,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/ccxt/ccxt.git"
+    "url": "https://github.com/alpacahq/ccxt.git"
   },
   "readme": "README.md",
   "scripts": {
