@@ -28,30 +28,61 @@ class bittrex extends Exchange {
             'pro' => true,
             // new metainfo interface
             'has' => array(
+                'CORS' => null,
+                'spot' => true,
+                'margin' => false,
+                'swap' => false,
+                'future' => false,
+                'option' => false,
+                'addMargin' => false,
                 'cancelAllOrders' => true,
                 'cancelOrder' => true,
-                'CORS' => null,
                 'createDepositAddress' => true,
                 'createMarketOrder' => true,
                 'createOrder' => true,
+                'createReduceOnlyOrder' => false,
                 'fetchBalance' => true,
+                'fetchBorrowRate' => false,
+                'fetchBorrowRateHistories' => false,
+                'fetchBorrowRateHistory' => false,
+                'fetchBorrowRates' => false,
+                'fetchBorrowRatesPerSymbol' => false,
                 'fetchClosedOrders' => true,
                 'fetchCurrencies' => true,
                 'fetchDepositAddress' => true,
                 'fetchDeposits' => true,
+                'fetchFundingFees' => null,
+                'fetchFundingHistory' => false,
+                'fetchFundingRate' => false,
+                'fetchFundingRateHistory' => false,
+                'fetchFundingRates' => false,
+                'fetchIndexOHLCV' => false,
+                'fetchLeverage' => false,
+                'fetchLeverageTiers' => false,
                 'fetchMarkets' => true,
+                'fetchMarkOHLCV' => false,
                 'fetchMyTrades' => 'emulated',
                 'fetchOHLCV' => true,
                 'fetchOpenOrders' => true,
                 'fetchOrder' => true,
                 'fetchOrderBook' => true,
                 'fetchOrderTrades' => true,
+                'fetchPosition' => false,
+                'fetchPositions' => false,
+                'fetchPositionsRisk' => false,
+                'fetchPremiumIndexOHLCV' => false,
                 'fetchTicker' => true,
                 'fetchTickers' => true,
                 'fetchTime' => true,
                 'fetchTrades' => true,
+                'fetchTradingFee' => true,
+                'fetchTradingFees' => true,
                 'fetchTransactions' => null,
                 'fetchWithdrawals' => true,
+                'reduceMargin' => false,
+                'setLeverage' => false,
+                'setMarginMode' => false,
+                'setPositionMode' => false,
                 'withdraw' => true,
             ),
             'timeframes' => array(
@@ -100,6 +131,10 @@ class bittrex extends Exchange {
                 'private' => array(
                     'get' => array(
                         'account',
+                        'account/fees/fiat',
+                        'account/fees/fiat/{currencySymbol}',
+                        'account/fees/trading',
+                        'account/fees/trading/{marketSymbol}',
                         'account/volume',
                         'addresses',
                         'addresses/{currencySymbol}',
@@ -225,6 +260,9 @@ class bittrex extends Exchange {
             ),
             'commonCurrencies' => array(
                 'BIFI' => 'Bifrost Finance',
+                'BTR' => 'BTRIPS',
+                'GMT' => 'GMT Token',
+                'MEME' => 'Memetic', // conflict with Meme Inu
                 'MER' => 'Mercury', // conflict with Mercurial Finance
                 'PROS' => 'Pros.Finance',
                 'REPV2' => 'REP',
@@ -271,56 +309,64 @@ class bittrex extends Exchange {
             $market = $response[$i];
             $baseId = $this->safe_string($market, 'baseCurrencySymbol');
             $quoteId = $this->safe_string($market, 'quoteCurrencySymbol');
-            $id = $this->safe_string($market, 'symbol');
             $base = $this->safe_currency_code($baseId);
             $quote = $this->safe_currency_code($quoteId);
-            $symbol = $base . '/' . $quote;
-            $pricePrecision = $this->safe_integer($market, 'precision', 8);
-            $precision = array(
-                'amount' => 8,
-                'price' => $pricePrecision,
-            );
             $status = $this->safe_string($market, 'status');
-            $active = ($status === 'ONLINE');
             $result[] = array(
-                'id' => $id,
-                'symbol' => $symbol,
+                'id' => $this->safe_string($market, 'symbol'),
+                'symbol' => $base . '/' . $quote,
                 'base' => $base,
                 'quote' => $quote,
+                'settle' => null,
                 'baseId' => $baseId,
                 'quoteId' => $quoteId,
+                'settleId' => null,
                 'type' => 'spot',
                 'spot' => true,
-                'active' => $active,
-                'info' => $market,
-                'precision' => $precision,
+                'margin' => false,
+                'swap' => false,
+                'future' => false,
+                'option' => false,
+                'active' => ($status === 'ONLINE'),
+                'contract' => false,
+                'linear' => null,
+                'inverse' => null,
+                'contractSize' => null,
+                'expiry' => null,
+                'expiryDatetime' => null,
+                'strike' => null,
+                'optionType' => null,
+                'precision' => array(
+                    'amount' => intval('8'),
+                    'price' => $this->safe_integer($market, 'precision', 8),
+                ),
                 'limits' => array(
+                    'leverage' => array(
+                        'min' => null,
+                        'max' => null,
+                    ),
                     'amount' => array(
                         'min' => $this->safe_number($market, 'minTradeSize'),
                         'max' => null,
                     ),
                     'price' => array(
-                        'min' => 1 / pow(10, $precision['price']),
+                        'min' => null,
                         'max' => null,
                     ),
                     'cost' => array(
                         'min' => null,
                         'max' => null,
                     ),
-                    'leverage' => array(
-                        'max' => 1,
-                    ),
                 ),
+                'info' => $market,
             );
         }
         return $result;
     }
 
-    public function fetch_balance($params = array ()) {
-        $this->load_markets();
-        $balances = $this->privateGetBalances ($params);
-        $result = array( 'info' => $balances );
-        $indexed = $this->index_by($balances, 'currencySymbol');
+    public function parse_balance($response) {
+        $result = array( 'info' => $response );
+        $indexed = $this->index_by($response, 'currencySymbol');
         $currencyIds = is_array($indexed) ? array_keys($indexed) : array();
         for ($i = 0; $i < count($currencyIds); $i++) {
             $currencyId = $currencyIds[$i];
@@ -331,7 +377,13 @@ class bittrex extends Exchange {
             $account['total'] = $this->safe_string($balance, 'total');
             $result[$code] = $account;
         }
-        return $this->parse_balance($result);
+        return $this->safe_balance($result);
+    }
+
+    public function fetch_balance($params = array ()) {
+        $this->load_markets();
+        $response = $this->privateGetBalances ($params);
+        return $this->parse_balance($response);
     }
 
     public function fetch_order_book($symbol, $limit = null, $params = array ()) {
@@ -401,6 +453,8 @@ class bittrex extends Exchange {
                 'type' => $this->safe_string($currency, 'coinType'),
                 'name' => $this->safe_string($currency, 'name'),
                 'active' => ($isActive === 'ONLINE'),
+                'deposit' => null,
+                'withdraw' => null,
                 'fee' => $fee,
                 'precision' => $precision,
                 'limits' => array(
@@ -443,18 +497,19 @@ class bittrex extends Exchange {
         //
         $timestamp = $this->parse8601($this->safe_string($ticker, 'updatedAt'));
         $marketId = $this->safe_string($ticker, 'symbol');
-        $symbol = $this->safe_symbol($marketId, $market, '-');
-        $percentage = $this->safe_number($ticker, 'percentChange');
-        $last = $this->safe_number($ticker, 'lastTradeRate');
-        return array(
+        $market = $this->safe_market($marketId, $market, '-');
+        $symbol = $market['symbol'];
+        $percentage = $this->safe_string($ticker, 'percentChange');
+        $last = $this->safe_string($ticker, 'lastTradeRate');
+        return $this->safe_ticker(array(
             'symbol' => $symbol,
             'timestamp' => $timestamp,
             'datetime' => $this->iso8601($timestamp),
-            'high' => $this->safe_number($ticker, 'high'),
-            'low' => $this->safe_number($ticker, 'low'),
-            'bid' => $this->safe_number($ticker, 'bidRate'),
+            'high' => $this->safe_string($ticker, 'high'),
+            'low' => $this->safe_string($ticker, 'low'),
+            'bid' => $this->safe_string($ticker, 'bidRate'),
             'bidVolume' => null,
-            'ask' => $this->safe_number($ticker, 'askRate'),
+            'ask' => $this->safe_string($ticker, 'askRate'),
             'askVolume' => null,
             'vwap' => null,
             'open' => null,
@@ -464,10 +519,10 @@ class bittrex extends Exchange {
             'change' => null,
             'percentage' => $percentage,
             'average' => null,
-            'baseVolume' => $this->safe_number($ticker, 'volume'),
-            'quoteVolume' => $this->safe_number($ticker, 'quoteVolume'),
+            'baseVolume' => $this->safe_string($ticker, 'volume'),
+            'quoteVolume' => $this->safe_string($ticker, 'quoteVolume'),
             'info' => $ticker,
-        );
+        ), $market, false);
     }
 
     public function fetch_tickers($symbols = null, $params = array ()) {
@@ -552,26 +607,25 @@ class bittrex extends Exchange {
         //
         // public fetchTrades
         //
-        //     {
-        //         "id":"9c5589db-42fb-436c-b105-5e2edcb95673",
-        //         "executedAt":"2020-10-03T11:48:43.38Z",
-        //         "quantity":"0.17939626",
-        //         "rate":"0.03297952",
-        //         "takerSide":"BUY"
-        //     }
+        //      {
+        //          "id" => "8a614d4e-e455-45b0-9aac-502b0aeb433f",
+        //          "executedAt" => "2021-11-25T14:54:44.65Z",
+        //          "quantity" => "30.00000000",
+        //          "rate" => "1.72923112",
+        //          "takerSide" => "SELL"
+        //      }
         //
         // private fetchOrderTrades
-        //
-        //     {
-        //         "id" => "aaa3e9bd-5b86-4a21-8b3d-1275c1d30b8e",
-        //         "marketSymbol" => "OMG-BTC",
-        //         "executedAt" => "2020-10-02T16:00:30.3Z",
-        //         "quantity" => "7.52710000",
-        //         "rate" => "0.00034907",
-        //         "orderId" => "3a3dbd33-3a30-4ae5-a41d-68d3c1ac537e",
-        //         "commission" => "0.00000525",
-        //         "isTaker" => false
-        //     }
+        //      {
+        //          "id" => "8a614d4e-e455-45b0-9aac-502b0aeb433f",
+        //          "marketSymbol" => "ADA-USDT",
+        //          "executedAt" => "2021-11-25T14:54:44.65Z",
+        //          "quantity" => "30.00000000",
+        //          "rate" => "1.72923112",
+        //          "orderId" => "6f7abf18-6901-4659-a48c-db0e88440ea4",
+        //          "commission" => "0.38907700",
+        //          "isTaker" =>  true
+        //      }
         //
         $timestamp = $this->parse8601($this->safe_string($trade, 'executedAt'));
         $id = $this->safe_string($trade, 'id');
@@ -580,24 +634,21 @@ class bittrex extends Exchange {
         $market = $this->safe_market($marketId, $market, '-');
         $priceString = $this->safe_string($trade, 'rate');
         $amountString = $this->safe_string($trade, 'quantity');
-        $price = $this->parse_number($priceString);
-        $amount = $this->parse_number($amountString);
-        $cost = $this->parse_number(Precise::string_mul($priceString, $amountString));
         $takerOrMaker = null;
         $isTaker = $this->safe_value($trade, 'isTaker');
         if ($isTaker !== null) {
             $takerOrMaker = $isTaker ? 'taker' : 'maker';
         }
         $fee = null;
-        $feeCost = $this->safe_number($trade, 'commission');
-        if ($feeCost !== null) {
+        $feeCostString = $this->safe_string($trade, 'commission');
+        if ($feeCostString !== null) {
             $fee = array(
-                'cost' => $feeCost,
+                'cost' => $feeCostString,
                 'currency' => $market['quote'],
             );
         }
         $side = $this->safe_string_lower($trade, 'takerSide');
-        return array(
+        return $this->safe_trade(array(
             'info' => $trade,
             'timestamp' => $timestamp,
             'datetime' => $this->iso8601($timestamp),
@@ -607,11 +658,11 @@ class bittrex extends Exchange {
             'takerOrMaker' => $takerOrMaker,
             'type' => null,
             'side' => $side,
-            'price' => $price,
-            'amount' => $amount,
-            'cost' => $cost,
+            'price' => $priceString,
+            'amount' => $amountString,
+            'cost' => null,
             'fee' => $fee,
-        );
+        ), $market);
     }
 
     public function fetch_time($params = array ()) {
@@ -643,6 +694,62 @@ class bittrex extends Exchange {
         //     )
         //
         return $this->parse_trades($response, $market, $since, $limit);
+    }
+
+    public function fetch_trading_fee($symbol, $params = array ()) {
+        $this->load_markets();
+        $market = $this->market($symbol);
+        $request = array(
+            'marketSymbol' => $market['id'],
+        );
+        $response = $this->privateGetAccountFeesTradingMarketSymbol (array_merge($request, $params));
+        //
+        //     {
+        //         "marketSymbol":"1INCH-ETH",
+        //         "makerRate":"0.00750000",
+        //         "takerRate":"0.00750000"
+        //     }
+        //
+        return $this->parse_trading_fee($response, $market);
+    }
+
+    public function fetch_trading_fees($params = array ()) {
+        $this->load_markets();
+        $response = $this->privateGetAccountFeesTrading ($params);
+        //
+        //     array(
+        //         array("marketSymbol":"1ECO-BTC","makerRate":"0.00750000","takerRate":"0.00750000"),
+        //         array("marketSymbol":"1ECO-USDT","makerRate":"0.00750000","takerRate":"0.00750000"),
+        //         array("marketSymbol":"1INCH-BTC","makerRate":"0.00750000","takerRate":"0.00750000"),
+        //         array("marketSymbol":"1INCH-ETH","makerRate":"0.00750000","takerRate":"0.00750000"),
+        //         array("marketSymbol":"1INCH-USD","makerRate":"0.00750000","takerRate":"0.00750000"),
+        //     )
+        //
+        return $this->parse_trading_fees($response);
+    }
+
+    public function parse_trading_fee($fee, $market = null) {
+        $marketId = $this->safe_string($fee, 'marketSymbol');
+        $maker = $this->safe_number($fee, 'makerRate');
+        $taker = $this->safe_number($fee, 'takerRate');
+        return array(
+            'info' => $fee,
+            'symbol' => $this->safe_symbol($marketId, $market),
+            'maker' => $maker,
+            'taker' => $taker,
+        );
+    }
+
+    public function parse_trading_fees($fees) {
+        $result = array(
+            'info' => $fees,
+        );
+        for ($i = 0; $i < count($fees); $i++) {
+            $fee = $this->parse_trading_fee($fees[$i]);
+            $symbol = $fee['symbol'];
+            $result[$symbol] = $fee;
+        }
+        return $result;
     }
 
     public function parse_ohlcv($ohlcv, $market = null) {
@@ -902,6 +1009,7 @@ class bittrex extends Exchange {
     public function parse_transaction($transaction, $currency = null) {
         //
         // fetchDeposits
+        //
         //     {
         //         "id" => "d00fdf2e-df9e-48f1-....",
         //         "currencySymbol" => "BTC",
@@ -916,6 +1024,7 @@ class bittrex extends Exchange {
         //     }
         //
         // fetchWithdrawals
+        //
         //     {
         //         "PaymentUuid" : "e293da98-788c-4188-a8f9-8ec2c33fdfcf",
         //         "Currency" : "XC",
@@ -930,7 +1039,18 @@ class bittrex extends Exchange {
         //         "InvalidAddress" : false
         //     }
         //
-        $id = $this->safe_string($transaction, 'id');
+        // withdraw
+        //
+        //     {
+        //         "currencySymbol" => "string",
+        //         "quantity" => "number (double)",
+        //         "cryptoAddress" => "string",
+        //         "cryptoAddressTag" => "string",
+        //         "fundsTransferMethodId" => "string (uuid)",
+        //         "clientWithdrawalId" => "string (uuid)"
+        //     }
+        //
+        $id = $this->safe_string_2($transaction, 'id', 'clientWithdrawalId');
         $amount = $this->safe_number($transaction, 'quantity');
         $address = $this->safe_string($transaction, 'cryptoAddress');
         $txid = $this->safe_string($transaction, 'txId');
@@ -979,8 +1099,13 @@ class bittrex extends Exchange {
             'id' => $id,
             'currency' => $code,
             'amount' => $amount,
+            'network' => null,
             'address' => $address,
+            'addressTo' => null,
+            'addressFrom' => null,
             'tag' => null,
+            'tagTo' => null,
+            'tagFrom' => null,
             'status' => $status,
             'type' => $type,
             'updated' => $updated,
@@ -1049,7 +1174,7 @@ class bittrex extends Exchange {
         $status = $this->safe_string_lower($order, 'status');
         $timeInForce = $this->parse_time_in_force($this->safe_string($order, 'timeInForce'));
         $postOnly = ($timeInForce === 'PO');
-        return $this->safe_order2(array(
+        return $this->safe_order(array(
             'id' => $this->safe_string($order, 'id'),
             'clientOrderId' => $clientOrderId,
             'timestamp' => $timestamp,
@@ -1156,6 +1281,7 @@ class bittrex extends Exchange {
         $market = null;
         if ($symbol !== null) {
             $market = $this->market($symbol);
+            $symbol = $market['symbol'];
             // because of this line we will have to rethink the entire v3
             // in other words, markets define all the rest of the API
             // and v3 $market ids are reversed in comparison to v1
@@ -1279,11 +1405,17 @@ class bittrex extends Exchange {
             $request['cryptoAddressTag'] = $tag;
         }
         $response = $this->privatePostWithdrawals (array_merge($request, $params));
-        $id = $this->safe_string($response, 'id');
-        return array(
-            'info' => $response,
-            'id' => $id,
-        );
+        //
+        //     {
+        //         "currencySymbol" => "string",
+        //         "quantity" => "number (double)",
+        //         "cryptoAddress" => "string",
+        //         "cryptoAddressTag" => "string",
+        //         "fundsTransferMethodId" => "string (uuid)",
+        //         "clientWithdrawalId" => "string (uuid)"
+        //     }
+        //
+        return $this->parse_transaction($response, $currency);
     }
 
     public function sign($path, $api = 'v3', $method = 'GET', $params = array (), $headers = null, $body = null) {

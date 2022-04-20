@@ -5,7 +5,6 @@
 const Exchange = require ('./base/Exchange');
 const { BadSymbol, ExchangeError, ExchangeNotAvailable, AuthenticationError, InvalidOrder, InsufficientFunds, OrderNotFound, DDoSProtection, PermissionDenied, AddressPending, OnMaintenance, BadRequest, InvalidAddress } = require ('./base/errors');
 const { TRUNCATE, DECIMAL_PLACES } = require ('./base/functions/number');
-const Precise = require ('./base/Precise');
 
 //  ---------------------------------------------------------------------------
 
@@ -21,30 +20,61 @@ module.exports = class bittrex extends Exchange {
             'pro': true,
             // new metainfo interface
             'has': {
+                'CORS': undefined,
+                'spot': true,
+                'margin': false,
+                'swap': false,
+                'future': false,
+                'option': false,
+                'addMargin': false,
                 'cancelAllOrders': true,
                 'cancelOrder': true,
-                'CORS': undefined,
                 'createDepositAddress': true,
                 'createMarketOrder': true,
                 'createOrder': true,
+                'createReduceOnlyOrder': false,
                 'fetchBalance': true,
+                'fetchBorrowRate': false,
+                'fetchBorrowRateHistories': false,
+                'fetchBorrowRateHistory': false,
+                'fetchBorrowRates': false,
+                'fetchBorrowRatesPerSymbol': false,
                 'fetchClosedOrders': true,
                 'fetchCurrencies': true,
                 'fetchDepositAddress': true,
                 'fetchDeposits': true,
+                'fetchFundingFees': undefined,
+                'fetchFundingHistory': false,
+                'fetchFundingRate': false,
+                'fetchFundingRateHistory': false,
+                'fetchFundingRates': false,
+                'fetchIndexOHLCV': false,
+                'fetchLeverage': false,
+                'fetchLeverageTiers': false,
                 'fetchMarkets': true,
+                'fetchMarkOHLCV': false,
                 'fetchMyTrades': 'emulated',
                 'fetchOHLCV': true,
                 'fetchOpenOrders': true,
                 'fetchOrder': true,
                 'fetchOrderBook': true,
                 'fetchOrderTrades': true,
+                'fetchPosition': false,
+                'fetchPositions': false,
+                'fetchPositionsRisk': false,
+                'fetchPremiumIndexOHLCV': false,
                 'fetchTicker': true,
                 'fetchTickers': true,
                 'fetchTime': true,
                 'fetchTrades': true,
+                'fetchTradingFee': true,
+                'fetchTradingFees': true,
                 'fetchTransactions': undefined,
                 'fetchWithdrawals': true,
+                'reduceMargin': false,
+                'setLeverage': false,
+                'setMarginMode': false,
+                'setPositionMode': false,
                 'withdraw': true,
             },
             'timeframes': {
@@ -93,6 +123,10 @@ module.exports = class bittrex extends Exchange {
                 'private': {
                     'get': [
                         'account',
+                        'account/fees/fiat',
+                        'account/fees/fiat/{currencySymbol}',
+                        'account/fees/trading',
+                        'account/fees/trading/{marketSymbol}',
                         'account/volume',
                         'addresses',
                         'addresses/{currencySymbol}',
@@ -218,6 +252,9 @@ module.exports = class bittrex extends Exchange {
             },
             'commonCurrencies': {
                 'BIFI': 'Bifrost Finance',
+                'BTR': 'BTRIPS',
+                'GMT': 'GMT Token',
+                'MEME': 'Memetic', // conflict with Meme Inu
                 'MER': 'Mercury', // conflict with Mercurial Finance
                 'PROS': 'Pros.Finance',
                 'REPV2': 'REP',
@@ -264,56 +301,64 @@ module.exports = class bittrex extends Exchange {
             const market = response[i];
             const baseId = this.safeString (market, 'baseCurrencySymbol');
             const quoteId = this.safeString (market, 'quoteCurrencySymbol');
-            const id = this.safeString (market, 'symbol');
             const base = this.safeCurrencyCode (baseId);
             const quote = this.safeCurrencyCode (quoteId);
-            const symbol = base + '/' + quote;
-            const pricePrecision = this.safeInteger (market, 'precision', 8);
-            const precision = {
-                'amount': 8,
-                'price': pricePrecision,
-            };
             const status = this.safeString (market, 'status');
-            const active = (status === 'ONLINE');
             result.push ({
-                'id': id,
-                'symbol': symbol,
+                'id': this.safeString (market, 'symbol'),
+                'symbol': base + '/' + quote,
                 'base': base,
                 'quote': quote,
+                'settle': undefined,
                 'baseId': baseId,
                 'quoteId': quoteId,
+                'settleId': undefined,
                 'type': 'spot',
                 'spot': true,
-                'active': active,
-                'info': market,
-                'precision': precision,
+                'margin': false,
+                'swap': false,
+                'future': false,
+                'option': false,
+                'active': (status === 'ONLINE'),
+                'contract': false,
+                'linear': undefined,
+                'inverse': undefined,
+                'contractSize': undefined,
+                'expiry': undefined,
+                'expiryDatetime': undefined,
+                'strike': undefined,
+                'optionType': undefined,
+                'precision': {
+                    'amount': parseInt ('8'),
+                    'price': this.safeInteger (market, 'precision', 8),
+                },
                 'limits': {
+                    'leverage': {
+                        'min': undefined,
+                        'max': undefined,
+                    },
                     'amount': {
                         'min': this.safeNumber (market, 'minTradeSize'),
                         'max': undefined,
                     },
                     'price': {
-                        'min': 1 / Math.pow (10, precision['price']),
+                        'min': undefined,
                         'max': undefined,
                     },
                     'cost': {
                         'min': undefined,
                         'max': undefined,
                     },
-                    'leverage': {
-                        'max': 1,
-                    },
                 },
+                'info': market,
             });
         }
         return result;
     }
 
-    async fetchBalance (params = {}) {
-        await this.loadMarkets ();
-        const balances = await this.privateGetBalances (params);
-        const result = { 'info': balances };
-        const indexed = this.indexBy (balances, 'currencySymbol');
+    parseBalance (response) {
+        const result = { 'info': response };
+        const indexed = this.indexBy (response, 'currencySymbol');
         const currencyIds = Object.keys (indexed);
         for (let i = 0; i < currencyIds.length; i++) {
             const currencyId = currencyIds[i];
@@ -324,7 +369,13 @@ module.exports = class bittrex extends Exchange {
             account['total'] = this.safeString (balance, 'total');
             result[code] = account;
         }
-        return this.parseBalance (result);
+        return this.safeBalance (result);
+    }
+
+    async fetchBalance (params = {}) {
+        await this.loadMarkets ();
+        const response = await this.privateGetBalances (params);
+        return this.parseBalance (response);
     }
 
     async fetchOrderBook (symbol, limit = undefined, params = {}) {
@@ -394,6 +445,8 @@ module.exports = class bittrex extends Exchange {
                 'type': this.safeString (currency, 'coinType'),
                 'name': this.safeString (currency, 'name'),
                 'active': (isActive === 'ONLINE'),
+                'deposit': undefined,
+                'withdraw': undefined,
                 'fee': fee,
                 'precision': precision,
                 'limits': {
@@ -436,18 +489,19 @@ module.exports = class bittrex extends Exchange {
         //
         const timestamp = this.parse8601 (this.safeString (ticker, 'updatedAt'));
         const marketId = this.safeString (ticker, 'symbol');
-        const symbol = this.safeSymbol (marketId, market, '-');
-        const percentage = this.safeNumber (ticker, 'percentChange');
-        const last = this.safeNumber (ticker, 'lastTradeRate');
-        return {
+        market = this.safeMarket (marketId, market, '-');
+        const symbol = market['symbol'];
+        const percentage = this.safeString (ticker, 'percentChange');
+        const last = this.safeString (ticker, 'lastTradeRate');
+        return this.safeTicker ({
             'symbol': symbol,
             'timestamp': timestamp,
             'datetime': this.iso8601 (timestamp),
-            'high': this.safeNumber (ticker, 'high'),
-            'low': this.safeNumber (ticker, 'low'),
-            'bid': this.safeNumber (ticker, 'bidRate'),
+            'high': this.safeString (ticker, 'high'),
+            'low': this.safeString (ticker, 'low'),
+            'bid': this.safeString (ticker, 'bidRate'),
             'bidVolume': undefined,
-            'ask': this.safeNumber (ticker, 'askRate'),
+            'ask': this.safeString (ticker, 'askRate'),
             'askVolume': undefined,
             'vwap': undefined,
             'open': undefined,
@@ -457,10 +511,10 @@ module.exports = class bittrex extends Exchange {
             'change': undefined,
             'percentage': percentage,
             'average': undefined,
-            'baseVolume': this.safeNumber (ticker, 'volume'),
-            'quoteVolume': this.safeNumber (ticker, 'quoteVolume'),
+            'baseVolume': this.safeString (ticker, 'volume'),
+            'quoteVolume': this.safeString (ticker, 'quoteVolume'),
             'info': ticker,
-        };
+        }, market, false);
     }
 
     async fetchTickers (symbols = undefined, params = {}) {
@@ -545,26 +599,25 @@ module.exports = class bittrex extends Exchange {
         //
         // public fetchTrades
         //
-        //     {
-        //         "id":"9c5589db-42fb-436c-b105-5e2edcb95673",
-        //         "executedAt":"2020-10-03T11:48:43.38Z",
-        //         "quantity":"0.17939626",
-        //         "rate":"0.03297952",
-        //         "takerSide":"BUY"
-        //     }
+        //      {
+        //          "id": "8a614d4e-e455-45b0-9aac-502b0aeb433f",
+        //          "executedAt": "2021-11-25T14:54:44.65Z",
+        //          "quantity": "30.00000000",
+        //          "rate": "1.72923112",
+        //          "takerSide": "SELL"
+        //      }
         //
         // private fetchOrderTrades
-        //
-        //     {
-        //         "id": "aaa3e9bd-5b86-4a21-8b3d-1275c1d30b8e",
-        //         "marketSymbol": "OMG-BTC",
-        //         "executedAt": "2020-10-02T16:00:30.3Z",
-        //         "quantity": "7.52710000",
-        //         "rate": "0.00034907",
-        //         "orderId": "3a3dbd33-3a30-4ae5-a41d-68d3c1ac537e",
-        //         "commission": "0.00000525",
-        //         "isTaker": false
-        //     }
+        //      {
+        //          "id": "8a614d4e-e455-45b0-9aac-502b0aeb433f",
+        //          "marketSymbol": "ADA-USDT",
+        //          "executedAt": "2021-11-25T14:54:44.65Z",
+        //          "quantity": "30.00000000",
+        //          "rate": "1.72923112",
+        //          "orderId": "6f7abf18-6901-4659-a48c-db0e88440ea4",
+        //          "commission": "0.38907700",
+        //          "isTaker":  true
+        //      }
         //
         const timestamp = this.parse8601 (this.safeString (trade, 'executedAt'));
         const id = this.safeString (trade, 'id');
@@ -573,24 +626,21 @@ module.exports = class bittrex extends Exchange {
         market = this.safeMarket (marketId, market, '-');
         const priceString = this.safeString (trade, 'rate');
         const amountString = this.safeString (trade, 'quantity');
-        const price = this.parseNumber (priceString);
-        const amount = this.parseNumber (amountString);
-        const cost = this.parseNumber (Precise.stringMul (priceString, amountString));
         let takerOrMaker = undefined;
         const isTaker = this.safeValue (trade, 'isTaker');
         if (isTaker !== undefined) {
             takerOrMaker = isTaker ? 'taker' : 'maker';
         }
         let fee = undefined;
-        const feeCost = this.safeNumber (trade, 'commission');
-        if (feeCost !== undefined) {
+        const feeCostString = this.safeString (trade, 'commission');
+        if (feeCostString !== undefined) {
             fee = {
-                'cost': feeCost,
+                'cost': feeCostString,
                 'currency': market['quote'],
             };
         }
         const side = this.safeStringLower (trade, 'takerSide');
-        return {
+        return this.safeTrade ({
             'info': trade,
             'timestamp': timestamp,
             'datetime': this.iso8601 (timestamp),
@@ -600,11 +650,11 @@ module.exports = class bittrex extends Exchange {
             'takerOrMaker': takerOrMaker,
             'type': undefined,
             'side': side,
-            'price': price,
-            'amount': amount,
-            'cost': cost,
+            'price': priceString,
+            'amount': amountString,
+            'cost': undefined,
             'fee': fee,
-        };
+        }, market);
     }
 
     async fetchTime (params = {}) {
@@ -636,6 +686,62 @@ module.exports = class bittrex extends Exchange {
         //     ]
         //
         return this.parseTrades (response, market, since, limit);
+    }
+
+    async fetchTradingFee (symbol, params = {}) {
+        await this.loadMarkets ();
+        const market = this.market (symbol);
+        const request = {
+            'marketSymbol': market['id'],
+        };
+        const response = await this.privateGetAccountFeesTradingMarketSymbol (this.extend (request, params));
+        //
+        //     {
+        //         "marketSymbol":"1INCH-ETH",
+        //         "makerRate":"0.00750000",
+        //         "takerRate":"0.00750000"
+        //     }
+        //
+        return this.parseTradingFee (response, market);
+    }
+
+    async fetchTradingFees (params = {}) {
+        await this.loadMarkets ();
+        const response = await this.privateGetAccountFeesTrading (params);
+        //
+        //     [
+        //         {"marketSymbol":"1ECO-BTC","makerRate":"0.00750000","takerRate":"0.00750000"},
+        //         {"marketSymbol":"1ECO-USDT","makerRate":"0.00750000","takerRate":"0.00750000"},
+        //         {"marketSymbol":"1INCH-BTC","makerRate":"0.00750000","takerRate":"0.00750000"},
+        //         {"marketSymbol":"1INCH-ETH","makerRate":"0.00750000","takerRate":"0.00750000"},
+        //         {"marketSymbol":"1INCH-USD","makerRate":"0.00750000","takerRate":"0.00750000"},
+        //     ]
+        //
+        return this.parseTradingFees (response);
+    }
+
+    parseTradingFee (fee, market = undefined) {
+        const marketId = this.safeString (fee, 'marketSymbol');
+        const maker = this.safeNumber (fee, 'makerRate');
+        const taker = this.safeNumber (fee, 'takerRate');
+        return {
+            'info': fee,
+            'symbol': this.safeSymbol (marketId, market),
+            'maker': maker,
+            'taker': taker,
+        };
+    }
+
+    parseTradingFees (fees) {
+        const result = {
+            'info': fees,
+        };
+        for (let i = 0; i < fees.length; i++) {
+            const fee = this.parseTradingFee (fees[i]);
+            const symbol = fee['symbol'];
+            result[symbol] = fee;
+        }
+        return result;
     }
 
     parseOHLCV (ohlcv, market = undefined) {
@@ -895,6 +1001,7 @@ module.exports = class bittrex extends Exchange {
     parseTransaction (transaction, currency = undefined) {
         //
         // fetchDeposits
+        //
         //     {
         //         "id": "d00fdf2e-df9e-48f1-....",
         //         "currencySymbol": "BTC",
@@ -909,6 +1016,7 @@ module.exports = class bittrex extends Exchange {
         //     }
         //
         // fetchWithdrawals
+        //
         //     {
         //         "PaymentUuid" : "e293da98-788c-4188-a8f9-8ec2c33fdfcf",
         //         "Currency" : "XC",
@@ -923,7 +1031,18 @@ module.exports = class bittrex extends Exchange {
         //         "InvalidAddress" : false
         //     }
         //
-        const id = this.safeString (transaction, 'id');
+        // withdraw
+        //
+        //     {
+        //         "currencySymbol": "string",
+        //         "quantity": "number (double)",
+        //         "cryptoAddress": "string",
+        //         "cryptoAddressTag": "string",
+        //         "fundsTransferMethodId": "string (uuid)",
+        //         "clientWithdrawalId": "string (uuid)"
+        //     }
+        //
+        const id = this.safeString2 (transaction, 'id', 'clientWithdrawalId');
         const amount = this.safeNumber (transaction, 'quantity');
         const address = this.safeString (transaction, 'cryptoAddress');
         const txid = this.safeString (transaction, 'txId');
@@ -972,8 +1091,13 @@ module.exports = class bittrex extends Exchange {
             'id': id,
             'currency': code,
             'amount': amount,
+            'network': undefined,
             'address': address,
+            'addressTo': undefined,
+            'addressFrom': undefined,
             'tag': undefined,
+            'tagTo': undefined,
+            'tagFrom': undefined,
             'status': status,
             'type': type,
             'updated': updated,
@@ -1042,7 +1166,7 @@ module.exports = class bittrex extends Exchange {
         const status = this.safeStringLower (order, 'status');
         const timeInForce = this.parseTimeInForce (this.safeString (order, 'timeInForce'));
         const postOnly = (timeInForce === 'PO');
-        return this.safeOrder2 ({
+        return this.safeOrder ({
             'id': this.safeString (order, 'id'),
             'clientOrderId': clientOrderId,
             'timestamp': timestamp,
@@ -1149,6 +1273,7 @@ module.exports = class bittrex extends Exchange {
         let market = undefined;
         if (symbol !== undefined) {
             market = this.market (symbol);
+            symbol = market['symbol'];
             // because of this line we will have to rethink the entire v3
             // in other words, markets define all the rest of the API
             // and v3 market ids are reversed in comparison to v1
@@ -1272,11 +1397,17 @@ module.exports = class bittrex extends Exchange {
             request['cryptoAddressTag'] = tag;
         }
         const response = await this.privatePostWithdrawals (this.extend (request, params));
-        const id = this.safeString (response, 'id');
-        return {
-            'info': response,
-            'id': id,
-        };
+        //
+        //     {
+        //         "currencySymbol": "string",
+        //         "quantity": "number (double)",
+        //         "cryptoAddress": "string",
+        //         "cryptoAddressTag": "string",
+        //         "fundsTransferMethodId": "string (uuid)",
+        //         "clientWithdrawalId": "string (uuid)"
+        //     }
+        //
+        return this.parseTransaction (response, currency);
     }
 
     sign (path, api = 'v3', method = 'GET', params = {}, headers = undefined, body = undefined) {

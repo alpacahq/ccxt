@@ -16,19 +16,46 @@ module.exports = class btcturk extends Exchange {
             'countries': [ 'TR' ], // Turkey
             'rateLimit': 100,
             'has': {
-                'cancelOrder': true,
                 'CORS': true,
+                'spot': true,
+                'margin': false,
+                'swap': false,
+                'future': false,
+                'option': false,
+                'addMargin': false,
+                'cancelOrder': true,
                 'createOrder': true,
+                'createReduceOnlyOrder': false,
                 'fetchBalance': true,
+                'fetchBorrowRate': false,
+                'fetchBorrowRateHistories': false,
+                'fetchBorrowRateHistory': false,
+                'fetchBorrowRates': false,
+                'fetchBorrowRatesPerSymbol': false,
+                'fetchFundingHistory': false,
+                'fetchFundingRate': false,
+                'fetchFundingRateHistory': false,
+                'fetchFundingRates': false,
+                'fetchIndexOHLCV': false,
+                'fetchLeverage': false,
                 'fetchMarkets': true,
+                'fetchMarkOHLCV': false,
                 'fetchMyTrades': true,
                 'fetchOHLCV': true,
                 'fetchOpenOrders': true,
                 'fetchOrderBook': true,
                 'fetchOrders': true,
+                'fetchPosition': false,
+                'fetchPositions': false,
+                'fetchPositionsRisk': false,
+                'fetchPremiumIndexOHLCV': false,
                 'fetchTicker': true,
                 'fetchTickers': true,
                 'fetchTrades': true,
+                'reduceMargin': false,
+                'setLeverage': false,
+                'setMarginMode': false,
+                'setPositionMode': false,
             },
             'timeframes': {
                 '1d': '1d',
@@ -143,7 +170,6 @@ module.exports = class btcturk extends Exchange {
             const quoteId = this.safeString (entry, 'denominator');
             const base = this.safeCurrencyCode (baseId);
             const quote = this.safeCurrencyCode (quoteId);
-            const symbol = base + '/' + quote;
             const filters = this.safeValue (entry, 'filters');
             let minPrice = undefined;
             let maxPrice = undefined;
@@ -162,41 +188,76 @@ module.exports = class btcturk extends Exchange {
                 }
             }
             const status = this.safeString (entry, 'status');
-            const active = status === 'TRADING';
-            const limits = {
-                'price': {
-                    'min': minPrice,
-                    'max': maxPrice,
-                },
-                'amount': {
-                    'min': minAmount,
-                    'max': maxAmount,
-                },
-                'cost': {
-                    'min': minCost,
-                    'max': undefined,
-                },
-            };
-            const precision = {
-                'price': this.safeInteger (entry, 'denominatorScale'),
-                'amount': this.safeInteger (entry, 'numeratorScale'),
-            };
             result.push ({
-                'info': entry,
-                'symbol': symbol,
                 'id': id,
+                'symbol': base + '/' + quote,
                 'base': base,
                 'quote': quote,
+                'settle': undefined,
                 'baseId': baseId,
                 'quoteId': quoteId,
-                'limits': limits,
-                'precision': precision,
+                'settleId': undefined,
                 'type': 'spot',
                 'spot': true,
-                'active': active,
+                'margin': false,
+                'swap': false,
+                'future': false,
+                'option': false,
+                'active': (status === 'TRADING'),
+                'contract': false,
+                'linear': undefined,
+                'inverse': undefined,
+                'contractSize': undefined,
+                'expiry': undefined,
+                'expiryDatetime': undefined,
+                'strike': undefined,
+                'optionType': undefined,
+                'precision': {
+                    'amount': this.safeInteger (entry, 'numeratorScale'),
+                    'price': this.safeInteger (entry, 'denominatorScale'),
+                },
+                'limits': {
+                    'leverage': {
+                        'min': undefined,
+                        'max': undefined,
+                    },
+                    'amount': {
+                        'min': minAmount,
+                        'max': maxAmount,
+                    },
+                    'price': {
+                        'min': minPrice,
+                        'max': maxPrice,
+                    },
+                    'cost': {
+                        'min': minCost,
+                        'max': undefined,
+                    },
+                },
+                'info': entry,
             });
         }
         return result;
+    }
+
+    parseBalance (response) {
+        const data = this.safeValue (response, 'data', []);
+        const result = {
+            'info': response,
+            'timestamp': undefined,
+            'datetime': undefined,
+        };
+        for (let i = 0; i < data.length; i++) {
+            const entry = data[i];
+            const currencyId = this.safeString (entry, 'asset');
+            const code = this.safeCurrencyCode (currencyId);
+            const account = this.account ();
+            account['total'] = this.safeString (entry, 'balance');
+            account['free'] = this.safeString (entry, 'free');
+            account['used'] = this.safeString (entry, 'locked');
+            result[code] = account;
+        }
+        return this.safeBalance (result);
     }
 
     async fetchBalance (params = {}) {
@@ -218,23 +279,7 @@ module.exports = class btcturk extends Exchange {
         //       ]
         //     }
         //
-        const data = this.safeValue (response, 'data', []);
-        const result = {
-            'info': response,
-            'timestamp': undefined,
-            'datetime': undefined,
-        };
-        for (let i = 0; i < data.length; i++) {
-            const entry = data[i];
-            const currencyId = this.safeString (entry, 'asset');
-            const code = this.safeCurrencyCode (currencyId);
-            const account = this.account ();
-            account['total'] = this.safeString (entry, 'balance');
-            account['free'] = this.safeString (entry, 'free');
-            account['used'] = this.safeString (entry, 'locked');
-            result[code] = account;
-        }
-        return this.parseBalance (result);
+        return this.parseBalance (response);
     }
 
     async fetchOrderBook (symbol, limit = undefined, params = {}) {
@@ -282,31 +327,32 @@ module.exports = class btcturk extends Exchange {
         //   }
         //
         const marketId = this.safeString (ticker, 'pair');
-        const symbol = this.safeSymbol (marketId, market);
+        market = this.safeMarket (marketId, market);
+        const symbol = market['symbol'];
         const timestamp = this.safeInteger (ticker, 'timestamp');
-        const last = this.safeNumber (ticker, 'last');
-        return {
+        const last = this.safeString (ticker, 'last');
+        return this.safeTicker ({
             'symbol': symbol,
             'timestamp': timestamp,
             'datetime': this.iso8601 (timestamp),
-            'high': this.safeNumber (ticker, 'high'),
-            'low': this.safeNumber (ticker, 'low'),
-            'bid': this.safeNumber (ticker, 'bid'),
+            'high': this.safeString (ticker, 'high'),
+            'low': this.safeString (ticker, 'low'),
+            'bid': this.safeString (ticker, 'bid'),
             'bidVolume': undefined,
-            'ask': this.safeNumber (ticker, 'ask'),
+            'ask': this.safeString (ticker, 'ask'),
             'askVolume': undefined,
             'vwap': undefined,
-            'open': this.safeNumber (ticker, 'open'),
+            'open': this.safeString (ticker, 'open'),
             'close': last,
             'last': last,
             'previousClose': undefined,
-            'change': this.safeNumber (ticker, 'daily'),
-            'percentage': this.safeNumber (ticker, 'dailyPercent'),
-            'average': this.safeNumber (ticker, 'average'),
-            'baseVolume': this.safeNumber (ticker, 'volume'),
+            'change': this.safeString (ticker, 'daily'),
+            'percentage': this.safeString (ticker, 'dailyPercent'),
+            'average': this.safeString (ticker, 'average'),
+            'baseVolume': this.safeString (ticker, 'volume'),
             'quoteVolume': undefined,
             'info': ticker,
-        };
+        }, market, false);
     }
 
     async fetchTickers (symbols = undefined, params = {}) {
@@ -356,9 +402,6 @@ module.exports = class btcturk extends Exchange {
         const order = this.safeString (trade, 'orderId');
         const priceString = this.safeString (trade, 'price');
         const amountString = Precise.stringAbs (this.safeString (trade, 'amount'));
-        const price = this.parseNumber (priceString);
-        const amount = this.parseNumber (amountString);
-        const cost = this.parseNumber (Precise.stringMul (priceString, amountString));
         const marketId = this.safeString (trade, 'pair');
         const symbol = this.safeSymbol (marketId, market);
         const side = this.safeString2 (trade, 'side', 'orderType');
@@ -367,11 +410,11 @@ module.exports = class btcturk extends Exchange {
         if (feeAmountString !== undefined) {
             const feeCurrency = this.safeString (trade, 'denominatorSymbol');
             fee = {
-                'cost': this.parseNumber (Precise.stringAbs (feeAmountString)),
+                'cost': Precise.stringAbs (feeAmountString),
                 'currency': this.safeCurrencyCode (feeCurrency),
             };
         }
-        return {
+        return this.safeTrade ({
             'info': trade,
             'id': id,
             'order': order,
@@ -381,11 +424,11 @@ module.exports = class btcturk extends Exchange {
             'type': undefined,
             'side': side,
             'takerOrMaker': undefined,
-            'price': price,
-            'amount': amount,
-            'cost': cost,
+            'price': priceString,
+            'amount': amountString,
+            'cost': undefined,
             'fee': fee,
-        };
+        }, market);
     }
 
     async fetchTrades (symbol, since = undefined, limit = undefined, params = {}) {
@@ -585,7 +628,7 @@ module.exports = class btcturk extends Exchange {
         //
         const id = this.safeString (order, 'id');
         const price = this.safeString (order, 'price');
-        const amountString = this.safeString (order, 'amount');
+        const amountString = this.safeString2 (order, 'amount', 'quantity');
         const amount = Precise.stringAbs (amountString);
         const remaining = this.safeString (order, 'leftAmount');
         const marketId = this.safeNumber (order, 'pairSymbol');
@@ -596,7 +639,7 @@ module.exports = class btcturk extends Exchange {
         const timestamp = this.safeInteger2 (order, 'updateTime', 'datetime');
         const rawStatus = this.safeString (order, 'status');
         const status = this.parseOrderStatus (rawStatus);
-        return this.safeOrder2 ({
+        return this.safeOrder ({
             'info': order,
             'id': id,
             'price': price,

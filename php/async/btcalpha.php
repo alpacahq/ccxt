@@ -21,19 +21,49 @@ class btcalpha extends Exchange {
             'countries' => array( 'US' ),
             'version' => 'v1',
             'has' => array(
+                'CORS' => null,
+                'spot' => true,
+                'margin' => false,
+                'swap' => false,
+                'future' => false,
+                'option' => false,
+                'addMargin' => false,
                 'cancelOrder' => true,
                 'createOrder' => true,
+                'createReduceOnlyOrder' => false,
                 'fetchBalance' => true,
+                'fetchBorrowRate' => false,
+                'fetchBorrowRateHistories' => false,
+                'fetchBorrowRateHistory' => false,
+                'fetchBorrowRates' => false,
+                'fetchBorrowRatesPerSymbol' => false,
                 'fetchClosedOrders' => true,
+                'fetchFundingHistory' => false,
+                'fetchFundingRate' => false,
+                'fetchFundingRateHistory' => false,
+                'fetchFundingRates' => false,
+                'fetchIndexOHLCV' => false,
+                'fetchLeverage' => false,
                 'fetchMarkets' => true,
+                'fetchMarkOHLCV' => false,
                 'fetchMyTrades' => true,
                 'fetchOHLCV' => true,
                 'fetchOpenOrders' => true,
                 'fetchOrder' => true,
                 'fetchOrderBook' => true,
                 'fetchOrders' => true,
+                'fetchPosition' => false,
+                'fetchPositions' => false,
+                'fetchPositionsRisk' => false,
+                'fetchPremiumIndexOHLCV' => false,
                 'fetchTicker' => null,
                 'fetchTrades' => true,
+                'fetchTradingFee' => false,
+                'fetchTradingFees' => false,
+                'reduceMargin' => false,
+                'setLeverage' => false,
+                'setMarginMode' => false,
+                'setPositionMode' => false,
             ),
             'timeframes' => array(
                 '1m' => '1',
@@ -100,6 +130,21 @@ class btcalpha extends Exchange {
 
     public function fetch_markets($params = array ()) {
         $response = yield $this->publicGetPairs ($params);
+        //
+        //    array(
+        //        array(
+        //            "name" => "1INCH_USDT",
+        //            "currency1" => "1INCH",
+        //            "currency2" => "USDT",
+        //            "price_precision" => 4,
+        //            "amount_precision" => 2,
+        //            "minimum_order_size" => "0.01000000",
+        //            "maximum_order_size" => "900000.00000000",
+        //            "minimum_order_value" => "10.00000000",
+        //            "liquidity_type" => 10
+        //        ),
+        //    )
+        //
         $result = array();
         for ($i = 0; $i < count($response); $i++) {
             $market = $response[$i];
@@ -108,24 +153,42 @@ class btcalpha extends Exchange {
             $quoteId = $this->safe_string($market, 'currency2');
             $base = $this->safe_currency_code($baseId);
             $quote = $this->safe_currency_code($quoteId);
-            $symbol = $base . '/' . $quote;
             $pricePrecision = $this->safe_string($market, 'price_precision');
             $priceLimit = $this->parse_precision($pricePrecision);
-            $precision = array(
-                'amount' => 8,
-                'price' => intval($pricePrecision),
-            );
             $amountLimit = $this->safe_string($market, 'minimum_order_size');
             $result[] = array(
                 'id' => $id,
-                'symbol' => $symbol,
+                'symbol' => $base . '/' . $quote,
                 'base' => $base,
                 'quote' => $quote,
+                'settle' => null,
+                'baseId' => $baseId,
+                'quoteId' => $quoteId,
+                'settleId' => null,
                 'type' => 'spot',
                 'spot' => true,
+                'margin' => false,
+                'swap' => false,
+                'future' => false,
+                'option' => false,
                 'active' => true,
-                'precision' => $precision,
+                'contract' => false,
+                'linear' => null,
+                'inverse' => null,
+                'contractSize' => null,
+                'expiry' => null,
+                'expiryDatetime' => null,
+                'strike' => null,
+                'optionType' => null,
+                'precision' => array(
+                    'amount' => intval('8'),
+                    'price' => intval($pricePrecision),
+                ),
                 'limits' => array(
+                    'leverage' => array(
+                        'min' => null,
+                        'max' => null,
+                    ),
                     'amount' => array(
                         'min' => $this->parse_number($amountLimit),
                         'max' => $this->safe_number($market, 'maximum_order_size'),
@@ -140,8 +203,6 @@ class btcalpha extends Exchange {
                     ),
                 ),
                 'info' => $market,
-                'baseId' => null,
-                'quoteId' => null,
             );
         }
         return $result;
@@ -172,37 +233,52 @@ class btcalpha extends Exchange {
     }
 
     public function parse_trade($trade, $market = null) {
-        $symbol = null;
-        if ($market === null) {
-            $market = $this->safe_value($this->markets_by_id, $trade['pair']);
-        }
-        if ($market !== null) {
-            $symbol = $market['symbol'];
-        }
+        //
+        // fetchTrades (public)
+        //
+        //      {
+        //          "id" => "202203440",
+        //          "timestamp" => "1637856276.264215",
+        //          "pair" => "AAVE_USDT",
+        //          "price" => "320.79900000",
+        //          "amount" => "0.05000000",
+        //          "type" => "buy"
+        //      }
+        //
+        // fetchMyTrades (private)
+        //
+        //      {
+        //          "id" => "202203440",
+        //          "timestamp" => "1637856276.264215",
+        //          "pair" => "AAVE_USDT",
+        //          "price" => "320.79900000",
+        //          "amount" => "0.05000000",
+        //          "type" => "buy",
+        //          "my_side" => "buy"
+        //      }
+        //
+        $marketId = $this->safe_string($trade, 'pair');
+        $market = $this->safe_market($marketId, $market, '_');
         $timestamp = $this->safe_timestamp($trade, 'timestamp');
         $priceString = $this->safe_string($trade, 'price');
         $amountString = $this->safe_string($trade, 'amount');
-        $price = $this->parse_number($priceString);
-        $amount = $this->parse_number($amountString);
-        $cost = $this->parse_number(Precise::string_mul($priceString, $amountString));
-        $id = $this->safe_string_2($trade, 'id', 'tid');
-        $side = $this->safe_string_2($trade, 'my_side', 'side');
-        $orderId = $this->safe_string($trade, 'o_id');
-        return array(
+        $id = $this->safe_string($trade, 'id');
+        $side = $this->safe_string_2($trade, 'my_side', 'type');
+        return $this->safe_trade(array(
             'id' => $id,
             'info' => $trade,
             'timestamp' => $timestamp,
             'datetime' => $this->iso8601($timestamp),
-            'symbol' => $symbol,
-            'order' => $orderId,
+            'symbol' => $market['symbol'],
+            'order' => $id,
             'type' => 'limit',
             'side' => $side,
             'takerOrMaker' => null,
-            'price' => $price,
-            'amount' => $amount,
-            'cost' => $cost,
+            'price' => $priceString,
+            'amount' => $amountString,
+            'cost' => null,
             'fee' => null,
-        );
+        ), $market);
     }
 
     public function fetch_trades($symbol, $since = null, $limit = null, $params = array ()) {
@@ -265,9 +341,7 @@ class btcalpha extends Exchange {
         return $this->parse_ohlcvs($response, $market, $timeframe, $since, $limit);
     }
 
-    public function fetch_balance($params = array ()) {
-        yield $this->load_markets();
-        $response = yield $this->privateGetWallets ($params);
+    public function parse_balance($response) {
         $result = array( 'info' => $response );
         for ($i = 0; $i < count($response); $i++) {
             $balance = $response[$i];
@@ -278,7 +352,13 @@ class btcalpha extends Exchange {
             $account['total'] = $this->safe_string($balance, 'balance');
             $result[$code] = $account;
         }
-        return $this->parse_balance($result);
+        return $this->safe_balance($result);
+    }
+
+    public function fetch_balance($params = array ()) {
+        yield $this->load_markets();
+        $response = yield $this->privateGetWallets ($params);
+        return $this->parse_balance($response);
     }
 
     public function parse_order_status($status) {
@@ -337,7 +417,7 @@ class btcalpha extends Exchange {
         $id = $this->safe_string_2($order, 'oid', 'id');
         $trades = $this->safe_value($order, 'trades');
         $side = $this->safe_string_2($order, 'my_side', 'type');
-        return $this->safe_order2(array(
+        return $this->safe_order(array(
             'id' => $id,
             'clientOrderId' => null,
             'datetime' => $this->iso8601($timestamp),

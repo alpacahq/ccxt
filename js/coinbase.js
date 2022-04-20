@@ -21,37 +21,64 @@ module.exports = class coinbase extends Exchange {
                 'CB-VERSION': '2018-05-30',
             },
             'has': {
-                'cancelOrder': undefined,
                 'CORS': true,
+                'spot': true,
+                'margin': false,
+                'swap': false,
+                'future': false,
+                'option': false,
+                'addMargin': false,
+                'cancelOrder': undefined,
                 'createDepositAddress': true,
                 'createOrder': undefined,
-                'deposit': undefined,
+                'createReduceOnlyOrder': false,
+                'fetchAccounts': true,
                 'fetchBalance': true,
                 'fetchBidsAsks': undefined,
+                'fetchBorrowRate': false,
+                'fetchBorrowRateHistories': false,
+                'fetchBorrowRateHistory': false,
+                'fetchBorrowRates': false,
+                'fetchBorrowRatesPerSymbol': false,
                 'fetchClosedOrders': undefined,
                 'fetchCurrencies': true,
                 'fetchDepositAddress': undefined,
                 'fetchDeposits': true,
+                'fetchFundingHistory': false,
+                'fetchFundingRate': false,
+                'fetchFundingRateHistory': false,
+                'fetchFundingRates': false,
                 'fetchIndexOHLCV': false,
-                'fetchL2OrderBook': undefined,
+                'fetchL2OrderBook': false,
                 'fetchLedger': true,
+                'fetchLeverage': false,
+                'fetchLeverageTiers': false,
                 'fetchMarkets': true,
                 'fetchMarkOHLCV': false,
                 'fetchMyBuys': true,
                 'fetchMySells': true,
                 'fetchMyTrades': undefined,
-                'fetchOHLCV': undefined,
+                'fetchOHLCV': false,
                 'fetchOpenOrders': undefined,
                 'fetchOrder': undefined,
-                'fetchOrderBook': undefined,
+                'fetchOrderBook': false,
                 'fetchOrders': undefined,
+                'fetchPosition': false,
+                'fetchPositions': false,
+                'fetchPositionsRisk': false,
                 'fetchPremiumIndexOHLCV': false,
                 'fetchTicker': true,
-                'fetchTickers': undefined,
+                'fetchTickers': true,
                 'fetchTime': true,
                 'fetchTrades': undefined,
+                'fetchTradingFee': false,
+                'fetchTradingFees': false,
                 'fetchTransactions': undefined,
                 'fetchWithdrawals': true,
+                'reduceMargin': false,
+                'setLeverage': false,
+                'setMarginMode': false,
+                'setPositionMode': false,
                 'withdraw': undefined,
             },
             'urls': {
@@ -138,6 +165,7 @@ module.exports = class coinbase extends Exchange {
                     'jumio_face_match_verification_required': AuthenticationError, // 400 Document verification including face match is required to complete this request
                     'unverified_email': AuthenticationError, // 400 User has not verified their email
                     'authentication_error': AuthenticationError, // 401 Invalid auth (generic)
+                    'invalid_authentication_method': AuthenticationError, // 401 API access is blocked for deleted users.
                     'invalid_token': AuthenticationError, // 401 Invalid Oauth token
                     'revoked_token': AuthenticationError, // 401 Revoked Oauth token
                     'expired_token': AuthenticationError, // 401 Expired Oauth token
@@ -436,8 +464,13 @@ module.exports = class coinbase extends Exchange {
             'txid': id,
             'timestamp': timestamp,
             'datetime': this.iso8601 (timestamp),
+            'network': undefined,
             'address': undefined,
+            'addressTo': undefined,
+            'addressFrom': undefined,
             'tag': undefined,
+            'tagTo': undefined,
+            'tagFrom': undefined,
             'type': type,
             'amount': amount,
             'currency': currency,
@@ -542,24 +575,39 @@ module.exports = class coinbase extends Exchange {
                     const quoteCurrency = data[j];
                     const quoteId = this.safeString (quoteCurrency, 'id');
                     const quote = this.safeCurrencyCode (quoteId);
-                    const symbol = base + '/' + quote;
-                    const id = baseId + '-' + quoteId;
                     result.push ({
-                        'id': id,
-                        'symbol': symbol,
+                        'id': baseId + '-' + quoteId,
+                        'symbol': base + '/' + quote,
                         'base': base,
                         'quote': quote,
+                        'settle': undefined,
                         'baseId': baseId,
                         'quoteId': quoteId,
+                        'settleId': undefined,
                         'type': 'spot',
                         'spot': true,
+                        'margin': false,
+                        'swap': false,
+                        'future': false,
+                        'option': false,
                         'active': undefined,
-                        'info': quoteCurrency,
+                        'contract': false,
+                        'linear': undefined,
+                        'inverse': undefined,
+                        'contractSize': undefined,
+                        'expiry': undefined,
+                        'expiryDatetime': undefined,
+                        'strike': undefined,
+                        'optionType': undefined,
                         'precision': {
                             'amount': undefined,
                             'price': undefined,
                         },
                         'limits': {
+                            'leverage': {
+                                'min': undefined,
+                                'max': undefined,
+                            },
                             'amount': {
                                 'min': undefined,
                                 'max': undefined,
@@ -572,10 +620,8 @@ module.exports = class coinbase extends Exchange {
                                 'min': this.safeNumber (quoteCurrency, 'min_size'),
                                 'max': undefined,
                             },
-                            'leverage': {
-                                'max': 1,
-                            },
                         },
+                        'info': quoteCurrency,
                     });
                 }
             }
@@ -650,6 +696,8 @@ module.exports = class coinbase extends Exchange {
                 'type': type,
                 'name': name,
                 'active': true,
+                'deposit': undefined,
+                'withdraw': undefined,
                 'fee': undefined,
                 'precision': undefined,
                 'limits': {
@@ -667,20 +715,90 @@ module.exports = class coinbase extends Exchange {
         return result;
     }
 
+    async fetchTickers (symbols = undefined, params = {}) {
+        await this.loadMarkets ();
+        const request = {
+            // 'currency': 'USD',
+        };
+        const response = await this.publicGetExchangeRates (this.extend (request, params));
+        //
+        //     {
+        //         "data":{
+        //             "currency":"USD",
+        //             "rates":{
+        //                 "AED":"3.6731",
+        //                 "AFN":"103.163942",
+        //                 "ALL":"106.973038",
+        //             }
+        //         }
+        //     }
+        //
+        const data = this.safeValue (response, 'data', {});
+        const rates = this.safeValue (data, 'rates', {});
+        const quoteId = this.safeString (data, 'currency');
+        const result = {};
+        const baseIds = Object.keys (rates);
+        const delimiter = '-';
+        for (let i = 0; i < baseIds.length; i++) {
+            const baseId = baseIds[i];
+            const marketId = baseId + delimiter + quoteId;
+            const market = this.safeMarket (marketId, undefined, delimiter);
+            const symbol = market['symbol'];
+            result[symbol] = this.parseTicker (rates[baseId], market);
+        }
+        return this.filterByArray (result, 'symbol', symbols);
+    }
+
     async fetchTicker (symbol, params = {}) {
         await this.loadMarkets ();
-        const timestamp = this.seconds ();
         const market = this.market (symbol);
         const request = this.extend ({
             'symbol': market['id'],
         }, params);
-        const buy = await this.publicGetPricesSymbolBuy (request);
-        const sell = await this.publicGetPricesSymbolSell (request);
         const spot = await this.publicGetPricesSymbolSpot (request);
-        const ask = this.safeNumber (buy['data'], 'amount');
-        const bid = this.safeNumber (sell['data'], 'amount');
-        const last = this.safeNumber (spot['data'], 'amount');
-        return {
+        //
+        //     {"data":{"base":"BTC","currency":"USD","amount":"48691.23"}}
+        //
+        const buy = await this.publicGetPricesSymbolBuy (request);
+        //
+        //     {"data":{"base":"BTC","currency":"USD","amount":"48691.23"}}
+        //
+        const sell = await this.publicGetPricesSymbolSell (request);
+        //
+        //     {"data":{"base":"BTC","currency":"USD","amount":"48691.23"}}
+        //
+        return this.parseTicker ([ spot, buy, sell ], market);
+    }
+
+    parseTicker (ticker, market = undefined) {
+        //
+        // fetchTicker
+        //
+        //     [
+        //         "48691.23", // spot
+        //         "48691.23", // buy
+        //         "48691.23",  // sell
+        //     ]
+        //
+        // fetchTickers
+        //
+        //     "48691.23"
+        //
+        const symbol = this.safeSymbol (undefined, market);
+        let ask = undefined;
+        let bid = undefined;
+        let last = undefined;
+        const timestamp = this.milliseconds ();
+        if (typeof ticker !== 'string') {
+            const [ spot, buy, sell ] = ticker;
+            const spotData = this.safeValue (spot, 'data', {});
+            const buyData = this.safeValue (buy, 'data', {});
+            const sellData = this.safeValue (sell, 'data', {});
+            last = this.safeString (spotData, 'amount');
+            bid = this.safeString (buyData, 'amount');
+            ask = this.safeString (sellData, 'amount');
+        }
+        return this.safeTicker ({
             'symbol': symbol,
             'timestamp': timestamp,
             'datetime': this.iso8601 (timestamp),
@@ -700,12 +818,8 @@ module.exports = class coinbase extends Exchange {
             'average': undefined,
             'baseVolume': undefined,
             'quoteVolume': undefined,
-            'info': {
-                'buy': buy,
-                'sell': sell,
-                'spot': spot,
-            },
-        };
+            'info': ticker,
+        }, market, false);
     }
 
     async fetchBalance (params = {}) {
@@ -740,7 +854,7 @@ module.exports = class coinbase extends Exchange {
                 }
             }
         }
-        return this.parseBalance (result);
+        return this.safeBalance (result);
     }
 
     async fetchLedger (code = undefined, since = undefined, limit = undefined, params = {}) {
@@ -750,7 +864,7 @@ module.exports = class coinbase extends Exchange {
             currency = this.currency (code);
         }
         const request = await this.prepareAccountRequestWithCurrencyCode (code, limit, params);
-        const query = this.omit (params, ['account_id', 'accountId']);
+        const query = this.omit (params, [ 'account_id', 'accountId' ]);
         // for pagination use parameter 'starting_after'
         // the value for the next page can be obtained from the result of the previous call in the 'pagination' field
         // eg: instance.last_json_response.pagination.next_starting_after
