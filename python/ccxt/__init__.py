@@ -72,6 +72,7 @@ from ccxt.base.errors import RequestTimeout                 # noqa: F401
 from ccxt.base.errors import error_hierarchy                # noqa: F401
 
 from ccxt.aax import aax                                    # noqa: F401
+from ccxt.alpaca import alpaca                              # noqa: F401
 from ccxt.ascendex import ascendex                          # noqa: F401
 from ccxt.bequant import bequant                            # noqa: F401
 from ccxt.bibox import bibox                                # noqa: F401
@@ -192,6 +193,7 @@ from ccxt.zonda import zonda                                # noqa: F401
 
 exchanges = [
     'aax',
+    'alpaca',
     'ascendex',
     'bequant',
     'bibox',

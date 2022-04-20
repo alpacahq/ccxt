@@ -447,6 +447,7 @@ declare module 'ccxt' {
     /* tslint:disable */
 
     export class aax extends Exchange {}
+    export class alpaca extends Exchange {}
     export class ascendex extends Exchange {}
     export class bequant extends hitbtc {}
     export class bibox extends Exchange {}
@@ -569,6 +570,7 @@ declare module 'ccxt' {
 
     export type ExchangeId =
         | 'aax'
+        | 'alpaca'
         | 'ascendex'
         | 'bequant'
         | 'bibox'
